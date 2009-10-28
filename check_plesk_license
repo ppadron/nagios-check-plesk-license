@@ -1,0 +1,140 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * check_plesk_license
+ * 
+ * Nagios plugin that checks the expiration date of a  a Plesk license.
+ * It uses Plesk's API-RPC to retrieve server information.
+ *
+ * TODO: support for additional licenses
+ *
+ * @version  0.1
+ * @author   Pedro Padron <ppadron@w3p.com.br>
+ * @license  LGPL http://www.gnu.org/licenses/lgpl.html
+ * @link     http://pear.php.net/packages/Payment/PagamentoCerto
+ *
+ */
+
+define('NAGIOS_RETURN_OK',       0);
+define('NAGIOS_RETURN_WARNING',  1);
+define('NAGIOS_RETURN_CRITICAL', 2);
+define('NAGIOS_RETURN_UNKNOWN',  3);
+
+function usage() {
+
+    $msg = <<<USG
+check_plesk_license - Nagios plugin to check for expired Plesk licenses
+
+Usage:
+    check_plesk_license <server> <password> [<daysToExpire>]
+
+Parameters:
+    <server>
+        server hostname
+    <password>
+        server admin password
+    (optional) <daysToExpire>
+        the acceptable amount of days before license expiration
+        (defaults to 30 days if not specified)
+    (optional) <protocolVersion>
+        API-RPC protocol version (not required)
+
+USG;
+
+    echo $msg;
+    exit;
+
+}
+
+if ($argc < 2) {
+    usage();
+}
+
+// parameters
+$server                 = $argv[1];
+$pass                   = $argv[2];
+$acceptableDaysToExpire = isset($argv[3]) ? $argv[3] : 30;
+$protocolVersion        = isset($argv[4]) ? $argv[4] : '1.4.0.0';
+
+// initializes a curl resource
+$curl = curl_init();
+
+// must not check ssl host
+curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
+
+// must not check ssl peer
+curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+
+// defines the method as post
+curl_setopt($curl, CURLOPT_POST, true);
+
+// response content must be returned
+curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+
+// plesk api-rpc entry point
+curl_setopt($curl, CURLOPT_URL, 'https://' . $server . ':8443/enterprise/control/agent.php');
+
+// request header
+curl_setopt(
+    $curl,
+    CURLOPT_HTTPHEADER,
+    array('HTTP_AUTH_LOGIN: admin', 'HTTP_AUTH_PASSWD: ' . $pass, 'Content-type: text/xml')
+);
+
+// request content (xml)
+curl_setopt(
+	$curl,
+	CURLOPT_POSTFIELDS,
+	'<packet version="' . $protocolVersion . '"><server><get><key/></get></server></packet>'
+);
+
+// sends the request
+$result = curl_exec($curl);
+
+// is everything ok?
+if (curl_errno($curl)) {
+	$errorMsg  = curl_error($curl);
+    $errorCode = curl_errno($curl);
+	fwrite(STDERR, 'UNKNOWN: Error ' . $errorCode . '. ' . $errorMsg . ".\n");
+	exit(NAGIOS_RETURN_UNKNOWN);
+}
+
+// build a new simplexmlelement based on the response
+$sxe = new SimpleXMLElement($result);
+
+// searching for the license info
+$node = $sxe->xpath('//lim_date');
+
+// did we find it?
+if (empty($node)) {
+	fwrite(STDERR, "UNKNOWN: Could not retrieve license info from server response\n");
+	exit(NAGIOS_RETURN_UNKNOWN);
+}
+
+// gets the expiration date
+$expirationDate = (string) $node[0];
+
+$future = strtotime($expirationDate);
+$now    = strtotime("now");
+$diff   = $future - $now;
+
+$daysToExpire = floor($diff/86400);
+
+if ($daysToExpire < 0) {
+    // license already expired
+	fwrite(STDERR, "CRITICAL: License already expired " . abs($daysToExpire) . " days ago.\n");
+	die(NAGIOS_RETURN_CRITICAL);
+} else if ($daysToExpire <= $acceptableDaysToExpire) {
+    // license is about to expire
+    fwrite(STDERR, "WARNING: License will expire in: " . $daysToExpire . " days.\n");
+    die(NAGIOS_RETURN_WARNING);
+} else {
+    // everything ok
+    fwrite(STDOUT, "OK: License will expire in: " . $daysToExpire . " days.\n");
+    die(NAGIOS_RETURN_OK);
+}
+
+fwrite(STDOUT, $daysToExpire . "\n");
+
+?>
