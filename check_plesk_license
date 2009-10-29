@@ -4,7 +4,7 @@
 /**
  * check_plesk_license
  * 
- * Nagios plugin that checks the expiration date of a  a Plesk license.
+ * Nagios plugin that checks the expiration date of a Plesk license.
  * It uses Plesk's API-RPC to retrieve server information.
  *
  * TODO: support for additional licenses
@@ -24,21 +24,23 @@ define('NAGIOS_RETURN_UNKNOWN',  3);
 function usage() {
 
     $msg = <<<USG
+
 check_plesk_license - Nagios plugin to check for expired Plesk licenses
 
 Usage:
-    check_plesk_license <server> <password> [<daysToExpire>]
+    check_plesk_license <server> <password> <daysToExpire>
 
 Parameters:
-    <server>
-        server hostname
-    <password>
-        server admin password
-    (optional) <daysToExpire>
+
+    <daysToExpire>
         the acceptable amount of days before license expiration
-        (defaults to 30 days if not specified)
-    (optional) <protocolVersion>
-        API-RPC protocol version (not required)
+
+    <server> (optional)
+        server hostname. if not specified, defaults to localhost.
+
+    <password> (optional)
+        server admin password
+        if not specified, the password will be retrieved from /etc/psa/.psa.shadow
 
 USG;
 
@@ -47,15 +49,16 @@ USG;
 
 }
 
-if ($argc < 2) {
+if ($argc < 2 || in_array($argv[1], array('-h', '--help'))) {
     usage();
 }
 
 // parameters
-$server                 = $argv[1];
-$pass                   = $argv[2];
-$acceptableDaysToExpire = isset($argv[3]) ? $argv[3] : 30;
-$protocolVersion        = isset($argv[4]) ? $argv[4] : '1.4.0.0';
+$acceptableDaysToExpire = (int) $argv[1];
+$server                 = isset($argv[2]) ? $argv[2] : 'localhost';
+$pass                   = isset($argv[3]) ? $argv[3] : trim(file_get_contents('/etc/psa/.psa.shadow'));
+
+$apiProtocolVersion        = '1.4.0.0';
 
 // initializes a curl resource
 $curl = curl_init();
@@ -86,7 +89,7 @@ curl_setopt(
 curl_setopt(
 	$curl,
 	CURLOPT_POSTFIELDS,
-	'<packet version="' . $protocolVersion . '"><server><get><key/></get></server></packet>'
+	'<packet version="' . $apiProtocolVersion . '"><server><get><key/></get></server></packet>'
 );
 
 // sends the request
