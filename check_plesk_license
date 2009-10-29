@@ -28,7 +28,7 @@ function usage() {
 check_plesk_license - Nagios plugin to check for expired Plesk licenses
 
 Usage:
-    check_plesk_license <server> <password> <daysToExpire>
+    check_plesk_license <daysToExpire> [<server> [<password>]]
 
 Parameters:
 
